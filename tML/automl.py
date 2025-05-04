@@ -4,14 +4,16 @@ import time
 import logging
 import pandas as pd
 from autogluon.tabular import TabularPredictor
-# Setup logger
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+from supervised.automl import AutoML
+
 
 def agluon_pipeline(expname: str, agluon_dir: str, presents: list, problem_type: str,
                  eval_metric: str, verbosity: int, sample_weight: str,
                  train_data=None, valid_data=None, test=None, fcols=None, tcol=None,
                  time_limit=180, num_bag_folds=5, num_bag_sets=1, num_stack_levels=1,
                  calibrate_decision_threshold=False):
+    # Setup logger
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
     ti = time.perf_counter()
     def supports_calibration(problem_type, eval_metric):
@@ -94,3 +96,116 @@ def agluon_pipeline(expname: str, agluon_dir: str, presents: list, problem_type:
     seconds = int(tf % 60)
     logging.info(f"Total time taken: {days}d {hours}h {minutes}m {seconds}s")
 
+
+import os
+import json
+import time
+import logging
+import pandas as pd
+from supervised.automl import AutoML
+
+def amljar_pipeline(expname: str, save_dir: str, modes: list, task: str, eval_metric: str,
+                    total_time_limit: int, train=None, test=None, fcols=None, tcol=None,
+                    features_selection: bool = False):
+
+    # Setup logger
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    ti = time.perf_counter()
+
+    for mode in modes:
+        logging.info(f'🔧 Starting AutoML experiment with mode={mode}')
+
+        sub_dir = os.path.join(save_dir, 'amljar', f'{mode}_{total_time_limit}')
+        os.makedirs(sub_dir, exist_ok=True)
+
+        automl = AutoML(
+            results_path=sub_dir,
+            mode=mode,
+            ml_task=task,
+            eval_metric=eval_metric,
+            total_time_limit=total_time_limit,
+            features_selection=features_selection
+        )
+
+        logging.info(f'⚙️  Fitting AutoML model...')
+        automl.fit(train[fcols], train[tcol])
+
+        fname = f'{mode}_{expname}'
+        id_col = test.iloc[:, 0]
+
+        # Save predictions
+        if task in ['binary_classification', 'multiclass_classification']:
+            logging.info('📈 Predicting probabilities...')
+            preds_proba = automl.predict_proba(test[fcols])
+            proba_path = os.path.join(sub_dir, f'{fname}_prob.csv')
+
+            if task == 'binary_classification':
+                submission_prob = pd.DataFrame({'Id': id_col, 'Probability': preds_proba[:, 1]})
+            else:  # multiclass
+                class_labels = automl.classes_
+                submission_prob = pd.DataFrame(preds_proba, columns=class_labels)
+                submission_prob.insert(0, 'Id', id_col)
+
+            submission_prob.to_csv(proba_path, index=False)
+            logging.info(f'✅ Probabilities saved to {proba_path}')
+
+            logging.info('📌 Predicting labels...')
+            preds = automl.predict(test[fcols])
+            pred_path = os.path.join(sub_dir, f'{fname}_pred.csv')
+            pd.DataFrame({'Id': id_col, 'Prediction': preds}).to_csv(pred_path, index=False)
+            logging.info(f'✅ Predictions saved to {pred_path}')
+
+        elif task == 'regression':
+            logging.info('📌 Predicting regression values...')
+            preds = automl.predict(test[fcols])
+            pred_path = os.path.join(sub_dir, f'{fname}_pred.csv')
+            pd.DataFrame({'Id': id_col, 'Prediction': preds}).to_csv(pred_path, index=False)
+            logging.info(f'✅ Predictions saved to {pred_path}')
+        else:
+            raise ValueError(f"❌ Unsupported ml_task: {task}")
+
+        # Save report
+        try:
+            report_path = os.path.join(sub_dir, f'{fname}_report.json')
+            with open(report_path, 'w') as f:
+                json.dump(automl.report(), f, indent=4)
+            logging.info(f'📄 Report saved to {report_path}')
+        except Exception as e:
+            logging.warning(f"⚠️  Could not save report: {e}")
+
+        # Save leaderboard
+        try:
+            leaderboard_df = automl.report()["models"]
+            leaderboard_path = os.path.join(sub_dir, f'{fname}_leaderboard.csv')
+            pd.DataFrame(leaderboard_df).to_csv(leaderboard_path, index=False)
+            logging.info(f'🏅 Leaderboard saved to {leaderboard_path}')
+        except Exception as e:
+            logging.warning(f"⚠️  Could not save leaderboard: {e}")
+
+        # Save feature importance if available
+        try:
+            feat_imp = automl.feature_importance()
+            featimp_path = os.path.join(sub_dir, f'{fname}_feature_importance.csv')
+            feat_imp.to_csv(featimp_path, index=False)
+            logging.info(f'📊 Feature importance saved to {featimp_path}')
+        except Exception as e:
+            logging.warning(f"⚠️  Feature importance not available: {e}")
+
+        # Save model
+        try:
+            model_dir = os.path.join(sub_dir, 'model')
+            os.makedirs(model_dir, exist_ok=True)
+            automl.save(model_dir)
+            logging.info(f'💾 Model saved to {model_dir}')
+        except Exception as e:
+            logging.warning(f"⚠️  Could not save model: {e}")
+
+    # Time summary
+    tf = time.perf_counter() - ti
+    days = int(tf // (24 * 3600))
+    tf %= 24 * 3600
+    hours = int(tf // 3600)
+    tf %= 3600
+    minutes = int(tf // 60)
+    seconds = int(tf % 60)
+    logging.info(f"⏱️  Total time taken: {days}d {hours}h {minutes}m {seconds}s")
