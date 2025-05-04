@@ -5,7 +5,7 @@ import json
 import logging
 import pandas as pd
 from supervised.automl import AutoML
-from utils.logging_utils import setup_logging
+from ulogging import setup_logging
 
 def amljar_pipeline(save_dir: str, modes: list, task: str, eval_metric: str,
                     total_time_limit: int, features_selection: bool = False,
