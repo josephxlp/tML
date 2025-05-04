@@ -4,13 +4,13 @@ import time
 import pandas as pd
 import logging
 from autogluon.tabular import TabularPredictor
-from utils.logging_utils import setup_logging
+from ulogging import setup_logging
 
 def agluon_pipeline(expname: str, agluon_dir: str, presents: list, problem_type: str,
                     eval_metric: str, verbosity: int, sample_weight: str,
                     train_data=None, valid_data=None, test=None, fcols=None, tcol=None,
                     time_limit=180, num_bag_folds=5, num_bag_sets=1, num_stack_levels=1,
-                    calibrate_decision_threshold=False):
+                    calibrate_decision_threshold=False, custom_thresholds=None):
 
     setup_logging(agluon_dir)
     ti = time.perf_counter()
@@ -68,12 +68,16 @@ def agluon_pipeline(expname: str, agluon_dir: str, presents: list, problem_type:
             with open(os.path.join(sub_dir, 'calibration_scores.json'), 'w') as f:
                 json.dump(calibration_data, f, indent=4)
 
-        # Multi-label or Regression prediction output
+        # Multi-label, Multi-class, or Regression prediction output
         if problem_type == 'regression':
             pred_output = predictor.predict(test[fcols])
+            # Optional: Apply clipping or other transformations on regression output
+            if 'clip' in custom_thresholds:
+                pred_output = pred_output.clip(lower=custom_thresholds['clip'][0], upper=custom_thresholds['clip'][1])
             fname = f'{present[0]}_{expname}_regression'
             pd.DataFrame({'Id': test.iloc[:, 0], 'Prediction': pred_output}).to_csv(
                 os.path.join(sub_dir, f'{fname}_pred.csv'), index=False)
+
         elif problem_type == 'multiclass':
             prob_output = predictor.predict_proba(test[fcols], as_multiclass=True)
             pred_output = predictor.predict(test[fcols])
@@ -82,9 +86,14 @@ def agluon_pipeline(expname: str, agluon_dir: str, presents: list, problem_type:
                 os.path.join(sub_dir, f'{fname}_prob.csv'), index=False)
             pd.DataFrame({'Id': test.iloc[:, 0], 'Prediction': pred_output}).to_csv(
                 os.path.join(sub_dir, f'{fname}_pred.csv'), index=False)
-        else:  # For multi-label classification
+
+        else:  # Multi-label classification
             prob_output = predictor.predict_proba(test[fcols], as_multiclass=False)
             pred_output = predictor.predict(test[fcols])
+            # Optional: Apply custom thresholds for multi-label classification
+            if custom_thresholds and 'multi_label' in custom_thresholds:
+                # Apply custom threshold for each label in multi-label case
+                pred_output = (prob_output >= custom_thresholds['multi_label']).astype(int)
             fname = f'{present[0]}_{expname}_multi_label'
             pd.DataFrame({'Id': test.iloc[:, 0], 'Prediction': pred_output}).to_csv(
                 os.path.join(sub_dir, f'{fname}_pred.csv'), index=False)
