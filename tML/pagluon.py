@@ -1,4 +1,3 @@
-# pipelines/agluon_pipeline.py
 import os
 import json
 import time
@@ -69,16 +68,28 @@ def agluon_pipeline(expname: str, agluon_dir: str, presents: list, problem_type:
             with open(os.path.join(sub_dir, 'calibration_scores.json'), 'w') as f:
                 json.dump(calibration_data, f, indent=4)
 
-        # this is only for binary, also do for multi label and regression  the predicting and writing 
-        prob_output = predictor.predict_proba(test[fcols], as_multiclass=False)
-        pred_output = predictor.predict(test[fcols])
-
-        fname = f'{present[0]}_{expname}'
-        pd.DataFrame({'Id': test.iloc[:, 0], 'Probability': prob_output}).to_csv(
-            os.path.join(sub_dir, f'{fname}_prob.csv'), index=False)
-        pd.DataFrame({'Id': test.iloc[:, 0], 'Prediction': pred_output}).to_csv(
-            os.path.join(sub_dir, f'{fname}_pred.csv'), index=False)
+        # Multi-label or Regression prediction output
+        if problem_type == 'regression':
+            pred_output = predictor.predict(test[fcols])
+            fname = f'{present[0]}_{expname}_regression'
+            pd.DataFrame({'Id': test.iloc[:, 0], 'Prediction': pred_output}).to_csv(
+                os.path.join(sub_dir, f'{fname}_pred.csv'), index=False)
+        elif problem_type == 'multiclass':
+            prob_output = predictor.predict_proba(test[fcols], as_multiclass=True)
+            pred_output = predictor.predict(test[fcols])
+            fname = f'{present[0]}_{expname}_multiclass'
+            pd.DataFrame({'Id': test.iloc[:, 0], 'Probability': prob_output.max(axis=1)}).to_csv(
+                os.path.join(sub_dir, f'{fname}_prob.csv'), index=False)
+            pd.DataFrame({'Id': test.iloc[:, 0], 'Prediction': pred_output}).to_csv(
+                os.path.join(sub_dir, f'{fname}_pred.csv'), index=False)
+        else:  # For multi-label classification
+            prob_output = predictor.predict_proba(test[fcols], as_multiclass=False)
+            pred_output = predictor.predict(test[fcols])
+            fname = f'{present[0]}_{expname}_multi_label'
+            pd.DataFrame({'Id': test.iloc[:, 0], 'Prediction': pred_output}).to_csv(
+                os.path.join(sub_dir, f'{fname}_pred.csv'), index=False)
+            pd.DataFrame({'Id': test.iloc[:, 0], 'Probability': prob_output}).to_csv(
+                os.path.join(sub_dir, f'{fname}_prob.csv'), index=False)
 
     tf = time.perf_counter() - ti
     logging.info(f"Total time taken: {int(tf // 86400)}d {int((tf % 86400) // 3600)}h {int((tf % 3600) // 60)}m {int(tf % 60)}s")
-
