@@ -4,3 +4,7 @@
 - add fair with amljar 
 
 @remove hithub actions has it failed huge - use pre-commit instead for now 
+---------------------------------------------------
+To Do:
+    - add initial feature enginering 
+    - add feature selection by model, shap, lofo, boruta 
