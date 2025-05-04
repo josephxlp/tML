@@ -57,6 +57,9 @@ def amljar_pipeline(save_dir: str, modes: list, task: str, eval_metric: str,
             automl.save(os.path.join(sub_dir, 'model_export'))
         except Exception as e:
             logging.warning(f"Model export failed: {e}")
+        
+        # return more stuff 
 
     tf = time.perf_counter() - ti
     logging.info(f"Total time taken: {int(tf // 86400)}d {int((tf % 86400) // 3600)}h {int((tf % 3600) // 60)}m {int(tf % 60)}s")
+    return os.path.join(sub_dir, f'{mode}_{total_time_limit}_prob.csv')
